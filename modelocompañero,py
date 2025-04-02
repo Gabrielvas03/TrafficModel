@@ -1,0 +1,126 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+
+# Parameters
+N = 6               # Number of cars
+v_max = 70          # Maximum speed (m/s)
+a_max = 15.0        # Maximum acceleration (m/s^2)
+a_min = -2.0        # Maximum braking (m/s^2)
+d_safe = 5          # Safe distance (m)
+d_min = 2           # Minimum distance allowed between cars (m)
+tau = 0.1          # Distance factor with speed
+T = 2               # Reaction time (s)
+alpha = 5         # Driver sensitivity
+road_end = 200      # Road length (m)
+
+# Initial conditions
+x0 = np.array([0, 0-d_safe, 0-d_safe*2, 0-d_safe*3, 0-d_safe*4, 0-d_safe*5])  # Initial positions of the six cars
+v0 = np.array([10, 9, 8, 7, 6, 5])         # Initial velocities of the six cars
+y0 = np.concatenate((x0, v0))              # Initial state vector (positions and velocities)
+
+# System of differential equations function
+def car_following_system(t, y, N, alpha, d_safe, d_min, tau, T, a_min, a_max, road_end):
+    x = y[:N]        # Positions of the cars
+    v = y[N:]        # Velocities of the cars
+    a = np.zeros(N)  # Acceleration for each car
+
+    # Calculate acceleration for each car
+    for i in range(1, N):
+        delta_x = x[i-1] - x[i]  # Distance between the car in front and the current car
+        
+        # Check if the distance is less than the safe distance
+        if delta_x <= d_safe:
+            # Brake to maintain a minimum distance d_min
+            a[i] = -abs(a_min) * (delta_x - d_min) / (d_safe - d_min)
+        else:
+            # Calculate normal acceleration based on distance and speed
+            a[i] = alpha * ((delta_x - (tau * v[i])) / T - v[i])
+        
+        # Limit acceleration within a_max and a_min
+        a[i] = max(a_min, min(a[i], a_max))
+
+    # Check if cars reach the end of the road
+    for i in range(N):
+        if x[i] >= road_end:
+            v[i] = 0  # Stop the car when reaching the end
+            a[i] = 0  # No acceleration when stopped
+
+    # Update derivatives of position and velocity
+    dxdt = v
+    dvdt = a
+    dydt = np.concatenate((dxdt, dvdt))
+    return dydt
+
+# Simulation time
+t_span = (0, 30)  # 30 seconds of simulation
+t_eval = np.linspace(t_span[0], t_span[1], 900)  # Time points for evaluation
+
+# Solve the system of differential equations
+sol = solve_ivp(
+    car_following_system, t_span, y0, args=(N, alpha, d_safe, d_min, tau, T, a_min, a_max, road_end),
+    t_eval=t_eval, vectorized=False
+)
+
+# Extract positions, velocities, and accelerations
+pos = sol.y[:N, :]        # Positions of the cars
+vel = sol.y[N:, :]        # Velocities of the cars
+
+# Calculate accelerations for each car
+a = np.zeros((len(t_eval), N))
+for k in range(len(t_eval)):
+    dydt = car_following_system(t_eval[k], sol.y[:, k], N, alpha, d_safe, d_min, tau, T, a_min, a_max, road_end)
+    a[k, :] = dydt[N:]
+
+# Plot positions vs time
+plt.figure()
+for i in range(N):
+    plt.plot(t_eval, pos[i, :], label=f'Car {i + 1}')
+plt.xlabel('Time (s)')
+plt.ylabel('Position (m)')
+plt.title('Position of Cars vs Time')
+plt.legend()
+plt.grid()
+
+# Plot velocities vs time
+plt.figure()
+for i in range(N):
+    plt.plot(t_eval, vel[i, :], label=f'Car {i + 1}')
+plt.xlabel('Time (s)')
+plt.ylabel('Velocity (m/s)')
+plt.title('Velocity of Cars')
+plt.legend()
+plt.grid()
+
+# Plot accelerations vs time
+plt.figure()
+for i in range(N):
+    plt.plot(t_eval, a[:, i], label=f'Car {i + 1}', linestyle='--')
+plt.xlabel('Time (s)')
+plt.ylabel('Acceleration (m/s^2)')
+plt.title('Acceleration of Cars')
+plt.legend()
+plt.grid()
+
+# Animation of cars on the road
+plt.figure()
+plt.plot([0, road_end], [1, 1], 'k', linewidth=5)  # Road line
+plt.title('Car Movement on the Road')
+plt.xlabel('Position (m)')
+plt.ylabel('Road')
+plt.xlim([0, road_end])
+plt.ylim([0, 2])
+plt.grid()
+
+# Initialize car plots
+car_markers = [plt.plot([], [], 'o', markersize=10, label=f'Car {i + 1}')[0] for i in range(N)]
+plt.legend()
+
+# Animation loop
+import time
+for k in range(len(t_eval)):
+    for i, car_marker in enumerate(car_markers):
+        car_marker.set_data(pos[i, k], 1)  # Update car position
+    plt.pause(0.01)  # Control animation speed
+
+plt.show()
